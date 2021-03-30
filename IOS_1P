@@ -1,0 +1,107 @@
+#!/bin/bash
+
+export POSIXLY_CORRECT=yes
+export LC_NUMERIC=en_US.UTF-8
+
+help()
+{
+ echo "Použití: ./tradelog [FILTR] [PŘÍKAZ] [LOG [LOG2 [...]]]"
+ echo "FILTRY:"
+ echo "-a DATETIME - after: jsou uvažovány pouze záznamy PO tomto datu. DATETIME je ve formátu YYYY-MM-DD HH:MM:SS"
+ echo "-b DATETIME - begore: jsou uvažovány pouze záznamy PŘED tímto datem."
+ echo "-t TICKER - jsou uvažovány pouze záznamy odpovídající danému tickeru."
+ echo "-w WIDTH - u výpisů grafů nastavuje jejich šířku, tedy délku nejdelšího řádku na WIDTH."
+ echo "PŘÍKAZY:"
+ echo "list-tick - výpis seznamu vyskytujících se burzovních symbolů"
+ echo "profit - výpis celkového zisku z uzavřených pozic"
+ echo "pos - výpis hodnot aktuálně držených pozic sestupně dle hodnoty"
+}
+
+COMMAND=""
+LOGS=()
+AFTER=""
+BEFORE="9999-99-99 99:99:99"
+TICKER_ON="NO"
+TICKER=()
+WIDTH=""
+
+while [ $# -gt 0 ]
+do
+argument="$1"
+
+case $argument in
+-h|--help)
+        help
+        exit 0
+        ;;
+
+-a)
+        if [ $# -le 1 ]; then
+                echo "špatný argument" $argument
+                exit 1
+        fi
+                AFTER=$2
+                shift
+                shift
+                ;;
+-b)
+        if [ $# -le 1 ]; then
+                echo "špatný argument" $argument
+                exit 1
+        fi
+                BEFORE=$2
+                shift
+                shift
+                ;;
+-t)
+        if [ $# -le 1 ]; then
+                echo "špatný argument" $argument
+                exit 1
+        fi
+                TICKER_ON="YES"
+                TICKER+=($2)
+                shift
+                shift
+                ;;
+-w)
+        if [ $# -le 1 ]; then
+                echo "špatný argument" $argument
+                exit 1
+        fi
+                WIDTH=$2
+                shift
+                shift
+                ;;
+list-tick | profit | pos | last-price | hist-ord | graph-pos)
+        if [ $# -le 1 ]; then
+                echo "špatný argument" $argument
+                exit 1
+        fi
+                COMMAND="$1"
+                shift
+                ;;
+*)
+        if [ -f $1 ]; then
+                LOGS+=($1)
+        fi
+                shift
+                ;;
+esac
+done
+
+DATA=""
+DATA_FILTERED=()
+
+
+if [ "${#LOGS[@]}" -ne 0 ]; then
+        DATA=${LOGS[@]}
+        awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{ if($1 > a && $1 < b) print }' $DATA
+else
+        if [ -t 0 ]; then
+        echo "žádná data"
+        else
+        while read  line ; do
+                DATA+=line
+                done < /dev/stdin
+        fi
+fi
