@@ -1,0 +1,138 @@
+#!/bin/bash
+
+export POSIXLY_CORRECT=yes
+export LC_NUMERIC=en_US.UTF-8
+
+help()
+{
+ echo "Použití: ./tradelog [FILTR] [PŘÍKAZ] [LOG [LOG2 [...]]]"
+ echo "FILTRY:"
+ echo "-a DATETIME - after: jsou uvažovány pouze záznamy PO tomto datu. DATETIME je ve formátu YYYY-MM-DD HH:MM:SS"
+ echo "-b DATETIME - begore: jsou uvažovány pouze záznamy PŘED tímto datem."
+ echo "-t TICKER - jsou uvažovány pouze záznamy odpovídající danému tickeru."
+ echo "-w WIDTH - u výpisů grafů nastavuje jejich šířku, tedy délku nejdelšího řádku na WIDTH."
+ echo "PŘÍKAZY:"
+ echo "list-tick - výpis seznamu vyskytujících se burzovních symbolů, tzv. “tickerů”."
+ echo "profit - výpis celkového zisku z uzavřených pozic."
+ echo "pos - výpis hodnot aktuálně držených pozic seřazených sestupně dle hodnoty."
+ echo "last-price - výpis poslední známé ceny pro každý ticker."
+ echo "hist-ord - výpis histogramu počtu transakcí dle tickeru."
+ echo "graph-pos – výpis grafu hodnot držených pozic dle tickeru."
+ echo "-h // --help   - nápověda"
+}
+check_argument()
+{
+ echo "špatný argument"
+ exit 1	
+}
+
+FILE="cat "
+COMMAND=""
+LOGS=()
+AFTER=""
+BEFORE="9999-99-99 99:99:99"
+TICKER_SWITCH="NO"
+TICKER=()
+WIDTH=""
+
+while [ $# -gt 0 ]
+do
+argument="$1"
+
+case $argument in
+-h|--help)
+	help
+	exit 0
+	;;
+
+-a)
+	if [ $# -le 1 ]; then
+ 		check_argument  
+	fi
+  		AFTER=$2
+  		shift
+  		shift
+		;;
+-b)
+	if [ $# -le 1 ]; then
+		check_argument
+ 	fi
+  		BEFORE=$2
+  		shift
+  		shift
+  		;;
+-t)
+	if [ $# -le 1 ]; then
+		check_argument
+	fi
+		TICKER_SWITCH="YES"
+		TICKER+=($2)
+		shift
+		shift
+		;;
+-w)
+	if [ $# -le 1 ]; then
+		check_argument
+	fi
+		WIDTH=$2
+		shift
+		shift
+		;;
+list-tick | profit | pos | last-price | hist-ord | graph-pos)
+	if [ $# -le 1 ]; then
+		check_argument
+	fi
+		COMMAND="$1"
+		shift
+		;;		
+*)
+ 	if [ -f $1 ]; then
+		LOGS+=($1)
+ 	fi
+  		shift
+		;;
+esac
+done
+
+
+DATA=""
+F_TICKERS=""
+if [ "$TICKER_SWITCH" == "YES" ]; then
+	if [ ${#TICKER[@]} -ge 1 ]; then
+	POSITION=$(( ${#TICKER[*]} - 1 ))
+	LAST=${TICKER[$POSITION]}
+	for op in "${TICKER[@]}"
+	do
+		F_TICKERS+=$op
+		if [ $op != $LAST ]; then
+		F_TICKERS+="\|"
+		fi
+	done
+	fi
+else
+F_TICKERS=";"
+fi
+if [ "${#LOGS[@]}" -ne 0 ]; then
+	for f in "${LOGS[@]}"
+	do
+		if [[ $f =~ .gz$ ]]; then
+			FILE="gzip -c -d "
+		fi
+		if [ "$COMMAND" == "list-tick" ]; then
+			$FILE $f | grep $F_TICKERS | awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{ if ( $1 > a && $1 < b ) print $2 }' /dev/stdin | sort -u
+		elif [ "$COMMAND" == "profit" ]; then
+			$FILE $f | grep $F_TICKERS | awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{count=0.00; if ( $1 > a && $1 < b ){ if ($3 == "sell"){count+=$4*$6} else { count-=$4*$6 }}}END{printf "profit = %.2f\n",count}' /dev/stdin
+		elif [ "$COMMAND" == "last-price" ]; then
+			$FILE $f | grep $F_TICKERS | awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{ if ( $1 > a && $1 < b ) print $2 " : "$4  }' /dev/stdin | sort -u -t: -k1,1
+		elif [ "$COMMAND" == "pos" ]; then
+			$FILE $f | grep $F_TICKERS | awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{cena_tickeru[$2]=$4; if ( $1 > a && $1 < b ) { if ($3 == "sell"){ count[$2]+=$6 } else { count[$2]-=$6 }}}END{for(op in count){printf "%s\t:%.2f\n",op,cena_tickeru[op]*count[op]}}' /dev/stdin | sort -u -g -r -t: -k 2
+		else
+			$FILE $f | grep $F_TICKERS | awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{ if ( $1 > a && $1 < b ) print}' /dev/stdin
+		fi
+	done
+else
+	if [ -t 0 ]; then
+	echo "žádná data"
+	fi
+	awk -v a="$AFTER" -v b="$BEFORE" --field-separator=";" '{ if ( $1 > a && $1 < b ) print }' /dev/stdin | grep $F_TICKERS
+fi
